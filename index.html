@@ -355,7 +355,7 @@ async function sbFetch(path,opts={}){
   const r=await fetch(SUPABASE_URL+path,{...opts,headers:{...SB_HEADERS,...(opts.headers||{})}});
   return r;
 }
-const STORAGE_KEY='matches';
+const STORAGE_KEY='matches_js002';
 let matches=[];
 let slotFiles={1:null,2:null};
 let editingId=null;

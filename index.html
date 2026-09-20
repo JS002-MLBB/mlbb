@@ -326,7 +326,6 @@ input[type="date"].filter-select{padding:3px 6px;font-size:10px;}
         <select class="filter-select" id="fStatsMode"><option value="">Tous modes</option><option value="Solo">Solo</option><option value="Duo">Duo</option><option value="Trio">Trio</option></select>
         <input type="date" class="filter-select" id="fStatsDateFrom" title="Du">
         <input type="date" class="filter-select" id="fStatsDateTo" title="Au">
-        <select class="filter-select" id="fStatsSaison"><option value="">Toutes saisons</option></select>
         <button class="btn-ghost-sm" id="clearStatsFilters">Effacer</button>
       </div>
     </div>
@@ -381,7 +380,6 @@ input[type="date"].filter-select{padding:3px 6px;font-size:10px;}
         <select class="filter-select" id="fHeroTabResult"><option value="">Tous résultats</option><option value="Victoire">Victoires</option><option value="Defaite">Défaites</option></select>
         <input type="date" class="filter-select" id="fHeroTabDateFrom" title="Du">
         <input type="date" class="filter-select" id="fHeroTabDateTo" title="Au">
-        <select class="filter-select" id="fHeroTabSaison"><option value="">Toutes saisons</option></select>
         <button class="btn-ghost-sm" id="clearHeroFilters">Effacer</button>
       </div>
     </div>
@@ -396,10 +394,7 @@ input[type="date"].filter-select{padding:3px 6px;font-size:10px;}
         <select class="filter-select" id="fHero"><option value="">Tous les héros</option></select>
         <select class="filter-select" id="fResult"><option value="">Tous résultats</option><option value="Victoire">Victoires</option><option value="Defaite">Défaites</option></select>
         <select class="filter-select" id="fLane"><option value="">Toutes lanes</option><option value="Gold">Gold</option><option value="Exp">Exp</option><option value="Mid">Mid</option><option value="Jungle">Jungle</option><option value="Roam">Roam</option></select>
-        <select class="filter-select" id="fSaison">
-          <option value="">Toutes saisons</option>
-        </select>
-        <select class="filter-select" id="fMode"><option value="">Tous modes</option><option value="Solo">Solo</option><option value="Duo">Duo</option><option value="Trio">Trio</option></select>
+<select class="filter-select" id="fMode"><option value="">Tous modes</option><option value="Solo">Solo</option><option value="Duo">Duo</option><option value="Trio">Trio</option></select>
         <select class="filter-select" id="fPeriod"><option value="">Toute période</option><option value="7">7 derniers jours</option><option value="30">30 derniers jours</option></select>
         <input type="date" class="filter-select" id="fDateFrom" title="Du">
         <input type="date" class="filter-select" id="fDateTo" title="Au">
@@ -427,15 +422,59 @@ let matches=[];
 let slotFiles={1:null,2:null};
 let editingId=null;
 let sortCol='idx';let sortDir=-1;
-const KNOWN_HEROES=['Lunox','Valentina','Brody','Clint'];
+const KNOWN_HEROES=[];
 const RANK_TIERS=['Warrior','Elite','Master','Grandmaster','Epic','Legend','Mythic','Mythical Glory'];
 
 
 // ─── GESTION DES SAISONS ───
 let activeSaison = null; // null = toutes saisons
+let dbSaisonsCache = []; // Seasons from Supabase mlbb_saisons
+
+
+// ─── GESTION DES SAISONS SUPABASE ───
+async function loadSaisonsFromDB(){
+  try{
+    const r=await sbFetch('/rest/v1/mlbb_saisons?select=nom&ordre=id.asc&compte=eq.JS002');
+    if(r.ok){
+      const data=await r.json();
+      const dbSaisons=data.map(row=>row.nom);
+      dbSaisonsCache=dbSaisons;
+      return dbSaisons;
+    }
+    console.warn('mlbb_saisons table not found or error');
+  }catch(e){
+    console.warn('loadSaisonsFromDB error:', e);
+  }
+  return [];
+}
+
+async function saveSaisonToDB(nom){
+  try{
+    const r=await fetch(SUPABASE_URL+'/rest/v1/mlbb_saisons',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'apikey':SUPABASE_KEY,
+        'Authorization':'Bearer '+SUPABASE_KEY,
+        'Prefer':'resolution=merge-duplicates,return=minimal'
+      },
+      body:JSON.stringify({nom,compte:'JS002'})
+    });
+    if(!r.ok){
+      const err=await r.text();
+      console.warn('saveSaisonToDB failed:',r.status,err);
+    } else {
+      console.log('Saison saved to DB:',nom);
+    }
+  }catch(e){console.warn('saveSaisonToDB error:',e);}
+
+}
+
 
 function getSaisons(){
+  // Seasons from match data + DB saisons (loaded into dbSaisons cache)
   const s=new Set(matches.map(m=>m.saison).filter(Boolean));
+  dbSaisonsCache.forEach(sn=>s.add(sn));
   return [...s].sort((a,b)=>{
     const na=parseInt(a.replace(/\D/g,''))||0;
     const nb=parseInt(b.replace(/\D/g,''))||0;
@@ -449,6 +488,7 @@ function getActiveSaison(){
 
 function setActiveSaison(s){
   activeSaison=s;
+  try{localStorage.setItem("activeSaison",s||"");}catch(e){}
   renderSaisonSelector();
   renderAll();
 }
@@ -457,14 +497,7 @@ function renderSaisonSelector(){
   const el=document.getElementById('saisonSelector');
   if(!el)return;
   const saisons=getSaisons();
-  // Also update stats and hero tab saison filters
-  ['fStatsSaison','fHeroTabSaison'].forEach(selId=>{
-    const sel=document.getElementById(selId);
-    if(sel){
-      const cur=sel.value;
-      sel.innerHTML='<option value="">Toutes saisons</option>'+saisons.map(s=>`<option value="${s}"${s===cur?' selected':''}>${s}</option>`).join('');
-    }
-  });
+
   el.innerHTML=`
     <select id="saisonSelect" style="background:var(--surface-2);border:1px solid var(--line);color:var(--text);padding:7px 12px;border-radius:6px;font-size:14px;font-family:Inter,sans-serif;font-weight:600;">
       ${saisons.map(s=>`<option value="${s}"${activeSaison===s?' selected':''}>${s}</option>`).join('')}
@@ -492,6 +525,7 @@ function renderSaisonSelector(){
       if(!val)return;
       activeSaison=val;
       window._defaultSaison=val;
+      saveSaisonToDB(val);
       form.remove();
       renderSaisonSelector();
       renderAll();
@@ -500,17 +534,17 @@ function renderSaisonSelector(){
 }
 
 function matchesForView(applyStatsFilters=true){
-  let list=activeSaison?matches.filter(m=>(m.saison||'S41')===activeSaison):[...matches];
+  // Only filter by saison if there are matches with that saison
+  const saisonHasData=activeSaison&&matches.some(m=>(m.saison||'S41')===activeSaison);
+  let list=saisonHasData?matches.filter(m=>(m.saison||'S41')===activeSaison):[...matches];
   // Apply analytics filters only when called from analytics context
   if(applyStatsFilters){
     const fStatsMode=document.getElementById('fStatsMode')?.value||'';
     const fStatsDateFrom=document.getElementById('fStatsDateFrom')?.value||'';
     const fStatsDateTo=document.getElementById('fStatsDateTo')?.value||'';
-    const fStatsSaison=document.getElementById('fStatsSaison')?.value||'';
     if(fStatsMode)list=list.filter(m=>(m.mode_jeu||'Solo')===fStatsMode);
     if(fStatsDateFrom)list=list.filter(m=>m.date&&m.date>=fStatsDateFrom);
     if(fStatsDateTo)list=list.filter(m=>m.date&&m.date<=fStatsDateTo);
-    if(fStatsSaison)list=list.filter(m=>(m.saison||'S41')===fStatsSaison);
   }
   return list;
 }
@@ -525,7 +559,7 @@ async function loadMatches(){
       const data=await r.json();
       matches=data.map(row=>({
         id:row.id, idx:row.idx, date:row.date, heroe:row.heroe, role:row.role,
-        mode_jeu:row.mode_jeu||'Solo', saison:row.saison||'S41', resultat:row.resultat, kills:row.kills, deaths:row.deaths, assists:row.assists,
+        mode_jeu:row.mode_jeu||'Solo', saison:(row.saison||'S42').replace(/^'(.*)'::text$/, '$1'), resultat:row.resultat, kills:row.kills, deaths:row.deaths, assists:row.assists,
         or:row.or_gold, score_performance:row.score_performance,
         degats_infliges:row.degats_infliges, degats_tourelle:row.degats_tourelle,
         degats_subis:row.degats_subis, participation_teamfight:row.participation_teamfight,
@@ -546,7 +580,27 @@ async function loadMatches(){
     const r2=localStorage.getItem(STORAGE_KEY);matches=r2?JSON.parse(r2):[];
     document.getElementById('syncStatus').textContent='⚠️ Mode hors ligne';
   }
-  renderAll();
+  // Load seasons from DB
+  await loadSaisonsFromDB();
+  // Restore activeSaison from localStorage first
+  const savedSaison=localStorage.getItem('activeSaison');
+  const saisons=getSaisons();
+  // Set activeSaison from actual match data (most recent saison with data)
+  const saisonCounts={};
+  matches.forEach(m=>{const s=m.saison||'S41';saisonCounts[s]=(saisonCounts[s]||0)+1;});
+  const saisonsWithData=Object.keys(saisonCounts).sort((a,b)=>{
+    const na=parseInt(a.replace(/\D/g,''))||0;
+    const nb=parseInt(b.replace(/\D/g,''))||0;
+    return nb-na;
+  });
+  // Use current activeSaison if it has data, otherwise use most recent with data
+  if(!activeSaison||!saisonCounts[activeSaison]){
+    if(saisonsWithData.length){
+      activeSaison=saisonsWithData[0];
+      window._defaultSaison=saisonsWithData[0];
+    }
+  }
+    renderAll();
 }
 
 async function persist(){
@@ -612,8 +666,9 @@ function renderKPIs(){
 // ─── ROLLING WINRATE LABEL ───
 function renderRollingWR(){
   const el=document.getElementById('winRateRolling');
-  if(matches.length<5){el.innerHTML='';return;}
-  const last20=[...matches].sort((a,b)=>(a.idx??0)-(b.idx??0)).slice(-20);
+  const filteredMatches=matchesForView();
+  if(filteredMatches.length<5){el.innerHTML='';return;}
+  const last20=[...filteredMatches].sort((a,b)=>(a.idx??0)-(b.idx??0)).slice(-20);
   const wr=Math.round(last20.filter(m=>m.resultat==='Victoire').length/last20.length*100);
   const col=wr>=50?'var(--gold)':'var(--crimson)';
   el.innerHTML=`<div style="font-size:13px;color:var(--muted);">Winrate 20 dernières parties : <span style="color:${col};font-family:Inter,sans-serif;font-size:24px;font-weight:700;">${wr}%</span></div>`;
@@ -1444,13 +1499,11 @@ function renderHeroCards(){
   const fHTabResult=document.getElementById('fHeroTabResult')?.value||'';
   const fHTabDateFrom=document.getElementById('fHeroTabDateFrom')?.value||'';
   const fHTabDateTo=document.getElementById('fHeroTabDateTo')?.value||'';
-  const fHTabSaison=document.getElementById('fHeroTabSaison')?.value||'';
   let matches=matchesForView(false);
   if(fHTabMode)matches=matches.filter(m=>(m.mode_jeu||'Solo')===fHTabMode);
   if(fHTabResult)matches=matches.filter(m=>m.resultat===fHTabResult);
   if(fHTabDateFrom)matches=matches.filter(m=>m.date&&m.date>=fHTabDateFrom);
   if(fHTabDateTo)matches=matches.filter(m=>m.date&&m.date<=fHTabDateTo);
-  if(fHTabSaison)matches=matches.filter(m=>(m.saison||'S41')===fHTabSaison);
   const hs=heroStats(matches);
   const el=document.getElementById('heroCards');
   const entries=Object.entries(hs);
@@ -1503,15 +1556,14 @@ function getFilteredMatches(){
   const fRes=document.getElementById('fResult').value;
   const fLane=document.getElementById('fLane').value;
   const fPeriod=document.getElementById('fPeriod').value;
-  const fSaison=document.getElementById('fSaison')?.value||'';
   const fDateFrom=document.getElementById('fDateFrom')?.value||'';
   const fDateTo=document.getElementById('fDateTo')?.value||'';
   const fMode2=document.getElementById('fMode')?.value||'';
-  let list=activeSaison?matches.filter(m=>(m.saison||'S41')===activeSaison):[...matches];
+  const saisonHasDataH=activeSaison&&matches.some(m=>(m.saison||'S41')===activeSaison);
+  let list=saisonHasDataH?matches.filter(m=>(m.saison||'S41')===activeSaison):[...matches];
   if(fHero)list=list.filter(m=>m.heroe===fHero);
   if(fRes)list=list.filter(m=>m.resultat===fRes);
   if(fLane)list=list.filter(m=>m.role===fLane);
-  if(fSaison)list=list.filter(m=>(m.saison||'S41')===fSaison);
   if(fMode2)list=list.filter(m=>(m.mode_jeu||'Solo')===fMode2);
   if(fPeriod){const cutoff=new Date();cutoff.setDate(cutoff.getDate()-+fPeriod);list=list.filter(m=>m.date&&new Date(m.date)>=cutoff);}
   if(fDateFrom)list=list.filter(m=>m.date&&m.date>=fDateFrom);
@@ -1684,7 +1736,7 @@ async function analyzeScreenshots(){
       {type:'image',source:{type:'base64',media_type:slotFiles[1].type||'image/png',data:b1}},
       {type:'image',source:{type:'base64',media_type:slotFiles[2].type||'image/png',data:b2}}
     ];
-    const prompt=`Tu es un extracteur de données pour Mobile Legends: Bang Bang (MLBB), mode classé. Capture 1 = tableau des scores. Capture 2 = écran de stats détaillées. Le joueur à suivre s'appelle exactement "JS002". Le héros fait probablement partie de : Lunox, Valentina, Brody, Clint. Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour, sans markdown, avec exactement ces clés : {"resultat":"Victoire"|"Defaite"|null,"heroe":string|null,"kills":number|null,"deaths":number|null,"assists":number|null,"or":number|null,"score_performance":number|null,"degats_infliges":number|null,"degats_tourelle":number|null,"degats_subis":number|null,"participation_teamfight":number|null,"mvp":"MVP Victoire"|"MVP Defaite"|"Aucun"|null,"duree_partie":string|null,"heure_partie":string|null,"score_allie":number|null,"score_ennemi":number|null,"confidence":{"resultat":0-1,"heroe":0-1,"kills":0-1,"deaths":0-1,"assists":0-1,"or":0-1,"score_performance":0-1,"degats_infliges":0-1,"participation_teamfight":0-1,"score_allie":0-1,"score_ennemi":0-1}}. "confidence" est ton niveau de certitude (1=très sûr, 0=très incertain) pour chaque champ. Le score de fin de partie (kills équipe vs kills adverses, affiché en grand en haut de la capture 1 de chaque côté) doit être extrait dans score_allie (côté JS002) et score_ennemi (côté adverse). La date et heure de la partie sont affichées en haut à droite de la capture 1 à côté de la durée (format JJ/MM/AAAA HH:MM:SS). Extrais uniquement l\'heure au format "HH:MM" dans heure_partie, et la date au format "AAAA-MM-JJ" dans le champ date.`;
+    const prompt=`Tu es un extracteur de données pour Mobile Legends: Bang Bang (MLBB), mode classé. Capture 1 = tableau des scores. Capture 2 = écran de stats détaillées. Le joueur à suivre s'appelle exactement "JS002". Réponds UNIQUEMENT avec un objet JSON valide, sans texte autour, sans markdown, avec exactement ces clés : {"resultat":"Victoire"|"Defaite"|null,"kills":number|null,"deaths":number|null,"assists":number|null,"or":number|null,"score_performance":number|null,"degats_infliges":number|null,"degats_tourelle":number|null,"degats_subis":number|null,"participation_teamfight":number|null,"mvp":"MVP Victoire"|"MVP Defaite"|"Aucun"|null,"duree_partie":string|null,"heure_partie":string|null,"score_allie":number|null,"score_ennemi":number|null,"confidence":{"resultat":0-1,"kills":0-1,"deaths":0-1,"assists":0-1,"or":0-1,"score_performance":0-1,"degats_infliges":0-1,"participation_teamfight":0-1,"score_allie":0-1,"score_ennemi":0-1}}. "confidence" est ton niveau de certitude (1=très sûr, 0=très incertain) pour chaque champ. Le score de fin de partie (kills équipe vs kills adverses, affiché en grand en haut de la capture 1 de chaque côté) doit être extrait dans score_allie (côté JS002) et score_ennemi (côté adverse). La date et heure de la partie sont affichées en haut à droite de la capture 1 à côté de la durée (format JJ/MM/AAAA HH:MM:SS). Extrais uniquement l\'heure au format "HH:MM" dans heure_partie, et la date au format "AAAA-MM-JJ" dans le champ date.`;
     // Compresser les images avant envoi (limite Groq: 4MB total base64)
     async function compressToBase64(file, maxW=1280){
       return new Promise(res=>{
@@ -1714,7 +1766,7 @@ async function analyzeScreenshots(){
     const response=await fetch('https://mlbb-proxy.yinhosan.workers.dev/',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:'qwen/qwen3.6-27b',max_tokens:2000,response_format:{type:'json_object'},reasoning_effort:'none',messages:[{role:'user',content:groqContent}]})
+      body:JSON.stringify({model:'qwen/qwen3.8-27b',max_tokens:2000,response_format:{type:'json_object'},messages:[{role:'user',content:groqContent}]})
     });
     if(!response.ok){const err=await response.json().catch(()=>({}));throw new Error(err.error?.message||response.status);}
     const data=await response.json();
@@ -1724,6 +1776,7 @@ async function analyzeScreenshots(){
     if(!cleaned){throw new Error('Réponse vide du modèle. Réessaie ou saisis manuellement.');}
     console.log('Groq raw response:', cleaned);
     const extracted=JSON.parse(cleaned);
+    extracted.heroe=null; // Hero entered manually
     editingId=null;showEditPanel(extracted,true);
   }catch(e){
     console.error('Groq error:',e);
@@ -2046,7 +2099,7 @@ function switchTab(id){
 document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
 
 // ─── FILTERS ───
-['fHero','fResult','fLane','fMode','fSaison','fPeriod','fDateFrom','fDateTo'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',renderTable);});
+['fHero','fResult','fLane','fMode','fPeriod','fDateFrom','fDateTo'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',renderTable);});
 ['fHeroTabMode','fHeroTabResult','fHeroTabDateFrom','fHeroTabDateTo','fHeroTabSaison'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',renderHeroCards);});
 ['fStatsMode','fStatsDateFrom','fStatsDateTo','fStatsSaison'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',()=>{renderKPIs();renderRollingWR();renderAnalytics();});});
 document.getElementById('clearStatsFilters')?.addEventListener('click',()=>{
@@ -2058,7 +2111,7 @@ document.getElementById('clearHeroFilters')?.addEventListener('click',()=>{
   renderHeroCards();
 });
 document.getElementById('clearFilters').addEventListener('click',()=>{
-  ['fHero','fResult','fLane','fMode','fSaison','fPeriod','fDateFrom','fDateTo'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderTable();
+  ['fHero','fResult','fLane','fMode','fPeriod','fDateFrom','fDateTo'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderTable();
 });
 
 // ─── EVENTS ───
@@ -2090,6 +2143,7 @@ document.getElementById('newSaisonMenuBtn').addEventListener('click',()=>{
     const val=document.getElementById('newSaisonInput').value.trim();
     if(!val)return;
     activeSaison=val;window._defaultSaison=val;
+    saveSaisonToDB(val);
     form.remove();renderSaisonSelector();renderAll();
   };
 });

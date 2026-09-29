@@ -559,7 +559,7 @@ async function loadMatches(){
       const data=await r.json();
       matches=data.map(row=>({
         id:row.id, idx:row.idx, date:row.date, heroe:row.heroe, role:row.role,
-        mode_jeu:row.mode_jeu||'Solo', saison:(row.saison||'S42').replace(/^'(.*)'::text$/, '$1'), resultat:row.resultat, kills:row.kills, deaths:row.deaths, assists:row.assists,
+        mode_jeu:row.mode_jeu||'Solo', duo_avec:row.duo_avec||null, saison:(row.saison||'S42').replace(/^'(.*)'::text$/, '$1'), resultat:row.resultat, kills:row.kills, deaths:row.deaths, assists:row.assists,
         or:row.or_gold, score_performance:row.score_performance,
         degats_infliges:row.degats_infliges, degats_tourelle:row.degats_tourelle,
         degats_subis:row.degats_subis, participation_teamfight:row.participation_teamfight,
@@ -611,7 +611,7 @@ async function persist(){
     const rows=matches.map(m=>({
       id:String(m.id), date:m.date||null, heroe:m.heroe||null, role:m.role||null,
       resultat:m.resultat||null, kills:m.kills??null, deaths:m.deaths??null, assists:m.assists??null,
-      idx:m.idx??null, mode_jeu:m.mode_jeu||'Solo', or_gold:m.or??null, score_performance:m.score_performance??null,
+      idx:m.idx??null, mode_jeu:m.mode_jeu||'Solo', duo_avec:m.duo_avec||null, or_gold:m.or??null, score_performance:m.score_performance??null,
       degats_infliges:m.degats_infliges??null, degats_tourelle:m.degats_tourelle??null,
       degats_subis:m.degats_subis??null, participation_teamfight:m.participation_teamfight??null,
       mvp:m.mvp||null, duree_partie:m.duree_partie||null, heure_partie:m.heure_partie||null,
@@ -1607,7 +1607,7 @@ function renderTable(){
       <td class="result-cell">${m.date||'—'}</td>
       <td class="hero-cell"><span class="dot" style="background:${heroColor(m.heroe)}"></span>${m.heroe||'—'}</td>
       <td>${m.role||'—'}</td>
-      <td>${m.mode_jeu||'Solo'}</td>
+      <td>${m.mode_jeu||'Solo'}${m.duo_avec?' <span style="color:var(--muted);font-size:10px;">+'+m.duo_avec+'</span>':''}</td>
       <td>${m.saison||'S41'}</td>
       <td>${m.resultat==='Victoire'?'✓ Victoire':'✗ Défaite'}</td>
       <td>${kda}</td><td>${ratio}</td>
@@ -1850,6 +1850,13 @@ function showEditPanel(data,fromAnalysis){
           <option value="Trio"${data.mode_jeu==='Trio'?' selected':''}>Trio</option>
         </select>
       </div>
+      <div class="field" id="f_duo_avec_wrap" style="display:${(data.mode_jeu==='Duo'||data.mode_jeu==='Trio')?'block':'none'};">
+        <label>Duo avec</label>
+        <select id="f_duo_avec">
+          <option value="">—</option>
+          ${['Roam','Gold','Exp','Mid','Jungle'].map(r=>`<option value="${r}"${data.duo_avec===r?' selected':''}>${r}</option>`).join('')}
+        </select>
+      </div>
       <div class="field"><label>Kills</label><input type="number" id="f_kills" class="${fClass('kills',data.kills)}" value="${data.kills??''}"></div>
       <div class="field"><label>Deaths</label><input type="number" id="f_deaths" class="${fClass('deaths',data.deaths)}" value="${data.deaths??''}"></div>
       <div class="field"><label>Assists</label><input type="number" id="f_assists" class="${fClass('assists',data.assists)}" value="${data.assists??''}"></div>
@@ -1995,6 +2002,10 @@ function initCompoAutocomplete(inputId,suggestionsId,pillsId,hiddenId,maxHeroes)
   renderPills();
 }
 
+  document.getElementById('f_mode_jeu').addEventListener('change',function(){
+    document.getElementById('f_duo_avec_wrap').style.display=(this.value==='Duo'||this.value==='Trio')?'block':'none';
+    if(this.value==='Solo')document.getElementById('f_duo_avec').value='';
+  });
   document.getElementById('cancelEdit').addEventListener('click',()=>{container.innerHTML='';editingId=null;});
   initCompoAutocomplete('f_compo_allie_input','compo_allie_suggestions','compo_allie_pills','f_compo_allie',5);
   initCompoAutocomplete('f_compo_adverse_input','compo_adverse_suggestions','compo_adverse_pills','f_compo_adverse',5);
@@ -2013,6 +2024,7 @@ function initCompoAutocomplete(inputId,suggestionsId,pillsId,hiddenId,maxHeroes)
       heroe:heroFinal||null,
       role:document.getElementById('f_role').value||null,
       mode_jeu:document.getElementById('f_mode_jeu').value||'Solo',
+      duo_avec:document.getElementById('f_duo_avec').value||null,
       saison:document.getElementById('f_saison').value.trim()||activeSaison||'S41',
       resultat:selectedResult,
       kills:num('f_kills'),deaths:num('f_deaths'),assists:num('f_assists'),
@@ -2036,7 +2048,7 @@ function initCompoAutocomplete(inputId,suggestionsId,pillsId,hiddenId,maxHeroes)
 }
 
 // ─── EXPORT / IMPORT ───
-const CSV_HEADERS=['date','heroe','role','mode_jeu','saison','resultat','kills','deaths','assists','or','score_performance','degats_infliges','degats_tourelle','degats_subis','participation_teamfight','mvp','duree_partie','heure_partie','score_allie','score_ennemi','compo_allie','compo_adverse'];
+const CSV_HEADERS=['date','heroe','role','mode_jeu','duo_avec','saison','resultat','kills','deaths','assists','or','score_performance','degats_infliges','degats_tourelle','degats_subis','participation_teamfight','mvp','duree_partie','heure_partie','score_allie','score_ennemi','compo_allie','compo_adverse'];
 
 function exportCSV(){
   const lines=[CSV_HEADERS.join(',')];
